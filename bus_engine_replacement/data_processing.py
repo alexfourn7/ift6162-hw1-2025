@@ -13,7 +13,7 @@ Data structure (from their code):
 - Column 10-11: Month/Year begin
 - Columns 12+: Monthly odometer readings
 
-Key insight: Odo_1 and Odo_2 tell us WHEN replacements occurred!
+Note: Odo_1 and Odo_2 tell us WHEN replacements occurred!
 When we cross these thresholds, we subtract them to get "mileage since last replacement".
 
 Author: Pierre-Luc Bacon

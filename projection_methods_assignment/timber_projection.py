@@ -167,7 +167,7 @@ class BellmanProjectionMethod(ProjectionMethod):
                       verbose: bool) -> np.ndarray:
         """Solve using successive approximation (value iteration in coefficient space)
         
-        THIS IS THE KEY INSIGHT: Parametric/Fitted Value Iteration!
+        This is Parametric/Fitted Value Iteration!
         
         Traditional value iteration: v^(k+1)(s) = Lv^(k)(s) for all s
         Parametric value iteration: a^(k+1) = T_hat(a^(k)) where

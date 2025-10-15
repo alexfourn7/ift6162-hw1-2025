@@ -217,7 +217,7 @@ class TrajectoryOptimizer:
         # - constraints: list of NonlinearConstraint objects
         # - options: {'maxiter': max_iter, 'ftol': 1e-6}
         #
-        # Key insight: SLSQP handles three types of constraints:
+        # Note: SLSQP handles three types of constraints:
         # 1. Box constraints (bounds= argument): simple lb ≤ z ≤ ub
         # 2. Equality constraints (NonlinearConstraint with lb=ub): g(z) = 0
         # 3. Inequality constraints (NonlinearConstraint): lb ≤ g(z) ≤ ub
