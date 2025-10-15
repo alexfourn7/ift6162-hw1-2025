@@ -142,7 +142,7 @@ def load_all_rust_data(binsize=5000):
     all_decisions = []
     
     for filename, (n_buses, n_periods) in groups_info.items():
-        filepath = f'data/nfxp/dat/{filename}'
+        filepath = f'bus_engine_replacement/data/nfxp/dat/{filename}'
         print(f"\nLoading {filename}...")
         states, decisions = load_rust_group(filepath, n_buses, n_periods, binsize)
         all_states.extend(states)

@@ -108,10 +108,10 @@ def smooth_bellman_operator(v, theta):
     # Then apply smooth Bellman: v(s) = log Σ_a exp(q(s,a))
     #   Use jax.scipy.special.logsumexp for numerical stability
     
-    q_keep = None  # TODO: -cost_keep + gamma * jnp.dot(jnp.array(T), v)
-    q_replace = None  # TODO: -cost_replace + gamma * v[0]
-    q_both = None  # TODO: jnp.stack([q_keep, jnp.full(n_states, q_replace)], axis=1)
-    v_new = None  # TODO: logsumexp(q_both, axis=1)
+    q_keep = -cost_keep + gamma * jnp.dot(jnp.array(T), v)
+    q_replace = -cost_replace + gamma * v[0]
+    q_both = jnp.stack([q_keep, jnp.full(n_states, q_replace)], axis=1)
+    v_new = logsumexp(q_both, axis=1)
     return v_new
     
 
@@ -172,10 +172,10 @@ def compute_policy(v, theta):
     # Hint: Same Q-value computation as in smooth_bellman_operator
     #       Then: log π(a|s) = q(s,a) - log Σ_a' exp(q(s,a'))
     
-    q_keep = None  # TODO
-    q_replace = None  # TODO
-    q_both = None  # TODO
-    log_pi = None  # TODO
+    q_keep = -cost_keep + gamma * jnp.dot(jnp.array(T), v)
+    q_replace = -cost_replace + gamma * v[0]
+    q_both = jnp.stack([q_keep, jnp.full(n_states, q_replace)], axis=1)
+    log_pi = q_both - logsumexp(q_both, axis=1, keepdims=True)
     return jnp.exp(log_pi)
     
 
@@ -197,10 +197,10 @@ def log_likelihood(theta):
     """
     
     # TODO: Implement log-likelihood L(θ) = Σ_i log π(a_i | s_i; θ)
-    v = None  # TODO: solve_smooth_bellman(theta)
-    pi = None  # TODO: compute_policy(v, theta)
-    probs_observed = None  # TODO: pi[states_data[:-1], decisions_data[:-1]]
-    return None  # TODO: jnp.sum(jnp.log(probs_observed + 1e-10))
+    v = solve_smooth_bellman(theta)
+    pi = compute_policy(v, theta)
+    probs_observed = pi[states_data[:-1], decisions_data[:-1]]
+    return jnp.sum(jnp.log(probs_observed + 1e-10))
     
 
 if __name__ == "__main__":
