@@ -71,8 +71,7 @@ class TrajectoryOptimizer:
             u_traj = z[:n_u_total].reshape(horizon, n_u)
             x_inner = z[n_u_total:].reshape(horizon, n_x)
             x_full = jnp.concatenate([self.x0_jax[None, :], x_inner], axis=0)
-            
-            
+        
             # TODO: Implement the objective function for multiple shooting optimization
             # 
             # Your objective should minimize:
@@ -83,7 +82,7 @@ class TrajectoryOptimizer:
             # - u_traj: control trajectory [horizon, n_u]
             #   - u_traj[:, :n_cases] are valve commands [0,1]
             #   - u_traj[:, n_cases] is compressor percentage [0,100]
-            # - x_full: state trajectory [horizon+1, n_x] (includes initial state)
+            #   - x_full: state trajectory [horizon+1, n_x] (includes initial state)
             #   - x_full[:, -1] is P_suc (suction pressure)
             #
             # Hints:
@@ -96,8 +95,20 @@ class TrajectoryOptimizer:
             #   (power in kW, switching penalty weighted at 0.01)
             #
             # See question.md for detailed mathematical formulation.
-            raise NotImplementedError("Implement objective function")
-        
+            valves = u_traj[:, :n_cases]
+            comp_percentage = u_traj[:, n_cases]
+            P_suc = x_full[1:, -1]
+
+            V_comp = eta_vol * V_sl * (comp_percentage / 100.0)
+            power = V_comp * power_factor_jax(P_suc)
+            power_cost = jnp.sum(power)
+
+            comp_switches = jnp.sum(jnp.abs(jnp.diff(comp_percentage)))
+            valves_switches = jnp.sum(jnp.abs(jnp.diff(valves, axis=0)))
+            switch_cost = comp_switches + valves_switches / 100.0
+
+            return power_cost / 1000.0 + 0.01 * switch_cost
+
         @jit
         def dynamics_defects(z):
             n_u_total = horizon * n_u
@@ -126,8 +137,16 @@ class TrajectoryOptimizer:
             # Return: flat vector of all defects, shape [horizon * n_x]
             #
             # This is the KEY difference between single and multiple shooting!
-            raise NotImplementedError("Implement dynamics defects")
+
+            def calculate_defect(k):
+                x_predicted = dynamics_step(x_full[k], u_traj[k], self.d_traj_jax[k])
+                defect = x_predicted - x_full[k + 1]
+                return defect
         
+            k = jnp.arange(horizon)
+            defects = jax.vmap(calculate_defect)(k)
+            return defects.flatten()
+
         self.objective_jax = objective
         self.objective_grad_jax = jit(grad(objective))
         self.dynamics_defects_jax = dynamics_defects
@@ -186,7 +205,27 @@ class TrajectoryOptimizer:
         
         # Then set specific bounds for T_air, P_suc, and M_ref
         # (See question.md for constraint specifications)
-        raise NotImplementedError("Set up state bounds")
+        for k in range(self.horizon):
+            base = k * self.n_x
+            idx_air0 = base + 4
+            lb_x[idx_air0] = 2.0
+            ub_x[idx_air0] = 5.0
+
+            idx_air1 = base + 5
+            lb_x[idx_air1] = 2.0
+            ub_x[idx_air1] = 5.0
+
+            idx_mref0 = base + 6
+            lb_x[idx_mref0] = 0.0
+            ub_x[idx_mref0] = 1.0
+
+            idx_mref1 = base + 7
+            lb_x[idx_mref1] = 0.0
+            ub_x[idx_mref1] = 1.0
+            
+            idx_psuc = base + 8
+            lb_x[idx_psuc] = 0.8
+            ub_x[idx_psuc] = 1.7
         
         bounds = Bounds(
             lb=np.concatenate([lb_u, lb_x]).astype(np.float64),
@@ -225,7 +264,22 @@ class TrajectoryOptimizer:
         # For dynamics, we want g(z) ≈ 0 (slight tolerance for numerical stability)
         #
         # Hint: Wrap your JAX functions to convert between numpy and jax arrays
-        raise NotImplementedError("Set up SLSQP optimization")
+        dynamics_constraint = NonlinearConstraint(
+            fun=lambda z: np.array(self.dynamics_defects_jax(jnp.array(z, dtype=jnp.float64)), dtype=np.float64),
+            lb=-1e-3 * np.ones(self.horizon * self.n_x),
+            ub=1e-3 * np.ones(self.horizon * self.n_x),
+            jac=lambda z: np.array(self.dynamics_jacobian_jax(jnp.array(z, dtype=jnp.float64)), dtype=np.float64)
+        )
+
+        result = minimize(
+            fun=objective_np,
+            x0=z0,
+            method='SLSQP',
+            jac=objective_grad_np,
+            bounds=bounds,
+            constraints=[dynamics_constraint],
+            options={'maxiter': max_iter, 'ftol': 1e-6}
+        )
         
         # Extract solution
         u_optimal = result.x[:n_u_total].reshape(self.horizon, self.n_u)
@@ -452,7 +506,7 @@ def optimize_full_trajectory(scenario='2d-2c', duration=14400, window_size=180,
     axes[2].grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig('optimization_results.png', dpi=150, bbox_inches='tight')
+    plt.savefig('supermarket_refrigeration/results/optimization_results.png', dpi=150, bbox_inches='tight')
     print(f"\nPlot saved: optimization_results.png")
     
     return time_opt, T_air_opt, P_suc_opt, power_opt

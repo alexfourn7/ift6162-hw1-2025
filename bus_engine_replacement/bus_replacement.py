@@ -360,7 +360,7 @@ ax.text(0.02, 0.02, f'Improving at ~{rate:.2f} per step',
         bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.5))
 
 plt.tight_layout()
-plt.savefig('estimation_results.png', dpi=150, bbox_inches='tight')
+plt.savefig('bus_engine_replacement/results/estimation_results.png', dpi=150, bbox_inches='tight')
 print(f"✓ Saved: estimation_results.png")
 
 # Create animation
@@ -415,7 +415,7 @@ anim = FuncAnimation(fig_anim, update_anim, init_func=init_anim,
 # Try to save as video (requires ffmpeg)
 try:
     writer = FFMpegWriter(fps=10, bitrate=1800)
-    anim.save('policy_evolution.mp4', writer=writer)
+    anim.save('bus_engine_replacement/results/policy_evolution.mp4', writer=writer)
     print(f"  ✓ Saved: policy_evolution.mp4")
 except Exception as e:
     print(f"  ⚠ Could not save video (ffmpeg not available): {e}")
