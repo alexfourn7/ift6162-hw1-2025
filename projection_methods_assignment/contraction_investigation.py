@@ -108,8 +108,13 @@ class ContractionAnalyzer:
         #    - Solve: new_coeffs = np.linalg.solve(Phi, v_new)
         #
         # This is the discretized operator we're testing for contraction!
-        
-        raise NotImplementedError("Implement discretized Bellman operator")
+        v_func = self.coeffs_to_function(coeffs)
+        v_new = self.bellman.bellman_operator(self.nodes, v_func)
+        n_basis = coeffs.shape[0]
+        Phi = np.column_stack([self.basis(self.nodes, j) for j in range(n_basis)])
+        new_coeffs = np.linalg.solve(Phi, v_new)
+        return new_coeffs
+
     
     def compute_distance_linf(self, coeffs1: np.ndarray, coeffs2: np.ndarray) -> float:
         """Compute L-infinity distance between two value functions
@@ -182,8 +187,21 @@ class ContractionAnalyzer:
         #
         # If L <= gamma: discretization preserves contraction!
         # If L > gamma: contraction is destroyed!
-        
-        raise NotImplementedError("Implement Lipschitz constant estimation")
+        ratios = []
+        for _ in range(n_samples):
+            n_coeffs = len(self.nodes)
+            a1 = np.random.uniform(coeffs_range[0], coeffs_range[1], n_coeffs)
+            a2 = np.random.uniform(coeffs_range[0], coeffs_range[1], n_coeffs)
+
+            dist_in = distance_fn(a1, a2)
+            Ta1 = self.apply_discretized_bellman(a1)
+            Ta2 = self.apply_discretized_bellman(a2)
+            dist_out = distance_fn(Ta1, Ta2)
+
+            ratios.append(dist_out / dist_in if dist_in > 0 else 0)
+
+        lipschitz_estimate = max(ratios)
+        return lipschitz_estimate, ratios
     
     def visualize_operator_behavior(self, coeffs1: np.ndarray, coeffs2: np.ndarray):
         """Visualize how the discretized Bellman operator transforms two functions
@@ -368,7 +386,7 @@ def compare_basis_functions():
     plt.suptitle('Distribution of Lipschitz Ratios Across Different Bases', 
                 fontsize=14, fontweight='bold')
     plt.tight_layout()
-    plt.savefig('contraction_comparison_histograms.png', dpi=300, bbox_inches='tight')
+    plt.savefig('projection_methods_assignment/results/contraction_comparison_histograms.png', dpi=300, bbox_inches='tight')
     plt.close()
     
     print(f"\nSaved: contraction_comparison_histograms.png")

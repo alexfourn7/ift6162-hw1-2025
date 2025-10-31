@@ -309,7 +309,8 @@ class CollocationTest(TestFunction):
         
         # TODO: Evaluate the residual function at the collocation nodes
         # Hint: Collocation uses delta functions, so <R, delta(x-xi)> = R(xi)
-        raise NotImplementedError("Implement collocation test")
+        return residual_func(self.nodes, coeffs)
+
 
 
 class GalerkinTest(TestFunction):
@@ -363,8 +364,19 @@ class GalerkinTest(TestFunction):
         #    - Compute weighted sum: sum(w_quad * R * phi_i * w_weight)
         # 
         # Hint: Gauss-Legendre quadrature approximates integral f(x)dx as sum w_j*f(x_j)
+        if self.quad_type == 'gauss':
+            x_std, w_std = np.polynomial.legendre.leggauss(self.n_quad)
+            scale = 0.5 * (b - a)
+            shift = 0.5 * (a + b)
+            x_quad = scale * x_std + shift
+            w_quad = scale * w_std
         
-        raise NotImplementedError("Implement Galerkin test with quadrature")
+        r = residual_func(x_quad, coeffs)
+
+        return np.array([
+            np.sum(w_quad * r * self.basis(x_quad, i) * self.weight(x_quad))
+            for i in range(len(coeffs)) 
+        ])
 
 
 # =============================================================================

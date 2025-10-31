@@ -128,7 +128,12 @@ class BellmanEquation(OperatorEquation):
         #
         # This measures how far v_hat is from satisfying the Bellman equation!
         
-        raise NotImplementedError("Implement Bellman residual computation")
+        def v_func(s_eval):
+            return basis.evaluate_approximation(s_eval, coeffs)
+        
+        Lv = self.bellman_operator(s, v_func)
+        v_hat = v_func(s)
+        return Lv - v_hat
     
     def compute_policy(self, s: np.ndarray, coeffs: np.ndarray,
                        basis: BasisFunction) -> np.ndarray:
@@ -215,8 +220,29 @@ class BellmanProjectionMethod(ProjectionMethod):
         # 
         # This IS value iteration, just in coefficient space instead of function space!
         # It's also called "fitted value iteration" in the DP literature.
-        
-        raise NotImplementedError("Implement parametric value iteration")
+        a = a0.copy()
+        nodes = self.test.nodes
+        n_basis = len(a)
+        Phi = np.column_stack([self.basis(nodes, j) for j in range(n_basis)])
+
+        for _ in range(max_iter):
+            def v_func(s_eval):
+                return self.basis.evaluate_approximation(s_eval, a)
+            
+            v_new = self.operator.bellman_operator(nodes, v_func)
+            
+            a_new = np.linalg.solve(Phi, v_new)
+            
+            diff = np.linalg.norm(a_new - a, ord=np.inf)
+            if diff < tol:
+                if verbose:
+                    print(f"Converged: Iterations: {_+1}, ||a_new - a||_inf = {diff:.2e}")
+                return a_new
+            
+            a = a_new
+        if verbose:
+            print(f"Max iterations reached. ||a_new - a||_inf = {diff:.2e}")
+        return a
 
 
 def solve_timber_with_projection(n_nodes: int = 50, basis_type: str = 'linear',
@@ -356,7 +382,7 @@ def compare_methods():
         ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig('timber_projection_comparison.png', dpi=300, bbox_inches='tight')
+    plt.savefig('projection_methods_assignment/results/timber_projection_comparison.png', dpi=300, bbox_inches='tight')
     print(f"\nSaved: timber_projection_comparison.png")
     plt.close()
     
