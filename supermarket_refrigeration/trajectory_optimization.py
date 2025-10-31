@@ -71,7 +71,8 @@ class TrajectoryOptimizer:
             u_traj = z[:n_u_total].reshape(horizon, n_u)
             x_inner = z[n_u_total:].reshape(horizon, n_x)
             x_full = jnp.concatenate([self.x0_jax[None, :], x_inner], axis=0)
-        
+            
+            
             # TODO: Implement the objective function for multiple shooting optimization
             # 
             # Your objective should minimize:
@@ -82,7 +83,7 @@ class TrajectoryOptimizer:
             # - u_traj: control trajectory [horizon, n_u]
             #   - u_traj[:, :n_cases] are valve commands [0,1]
             #   - u_traj[:, n_cases] is compressor percentage [0,100]
-            #   - x_full: state trajectory [horizon+1, n_x] (includes initial state)
+            # - x_full: state trajectory [horizon+1, n_x] (includes initial state)
             #   - x_full[:, -1] is P_suc (suction pressure)
             #
             # Hints:
@@ -107,8 +108,8 @@ class TrajectoryOptimizer:
             valves_switches = jnp.sum(jnp.abs(jnp.diff(valves, axis=0)))
             switch_cost = comp_switches + valves_switches / 100.0
 
-            return power_cost / 1000.0 + 0.01 * switch_cost
-
+            return power_cost / 1000.0 + 0.1 * switch_cost
+        
         @jit
         def dynamics_defects(z):
             n_u_total = horizon * n_u
@@ -136,23 +137,21 @@ class TrajectoryOptimizer:
             #
             # Return: flat vector of all defects, shape [horizon * n_x]
             #
-            # This is the KEY difference between single and multiple shooting!
-
+            # This is the KEY difference between single and multiple shooting!    
             def calculate_defect(k):
-                x_predicted = dynamics_step(x_full[k], u_traj[k], self.d_traj_jax[k])
-                defect = x_predicted - x_full[k + 1]
-                return defect
+                x_pred = self.dynamics_step(x_full[k], u_traj[k], self.d_traj_jax[k])
+                return x_pred - x_full[k + 1]
         
             k = jnp.arange(horizon)
             defects = jax.vmap(calculate_defect)(k)
-            return defects.flatten()
-
+            return defects.reshape(-1)
+        
         self.objective_jax = objective
         self.objective_grad_jax = jit(grad(objective))
         self.dynamics_defects_jax = dynamics_defects
         self.dynamics_jacobian_jax = jit(jax.jacfwd(dynamics_defects))
     
-    def optimize(self, x0: np.ndarray, d_traj: np.ndarray, 
+    def optimize(self, x0: np.ndarray, d_traj: np.ndarray, P_ref: float, 
                 max_iter: int = 20, verbose: bool = False) -> Tuple[np.ndarray, np.ndarray]:
         """
         Solve multiple shooting optimization problem using SLSQP
@@ -172,7 +171,7 @@ class TrajectoryOptimizer:
         self.d_traj_jax = jnp.array(d_traj)
         
         # Initialize from PID baseline
-        u_init = self._get_pid_warmstart(x0, d_traj)
+        u_init = self._get_pid_warmstart(x0, d_traj, P_ref)
         x_init = self.forward_simulate(self.x0_jax, u_init, self.d_traj_jax)[1:]
         z0 = np.concatenate([np.array(u_init).flatten(), np.array(x_init).flatten()]).astype(np.float64)
         
@@ -226,6 +225,7 @@ class TrajectoryOptimizer:
             idx_psuc = base + 8
             lb_x[idx_psuc] = 0.8
             ub_x[idx_psuc] = 1.7
+        
         
         bounds = Bounds(
             lb=np.concatenate([lb_u, lb_x]).astype(np.float64),
@@ -291,7 +291,7 @@ class TrajectoryOptimizer:
         
         return u_optimal, x_optimal
     
-    def _get_pid_warmstart(self, x0: np.ndarray, d_traj: np.ndarray) -> jnp.ndarray:
+    def _get_pid_warmstart(self, x0: np.ndarray, d_traj: np.ndarray, P_ref: float) -> jnp.ndarray:
         """PID baseline for warm start"""
         system = sm.RefrigerationSystem(self.n_cases, [50.0, 50.0], 0.08, False)
         
@@ -308,12 +308,13 @@ class TrajectoryOptimizer:
         for i in range(self.n_cases):
             system.cases[i].state = np.array([T_goods[i], T_wall[i], T_air[i], M_ref[i]])
         system.P_suc = P_suc
-        system.set_day_mode()
         
         u_init = np.zeros((self.horizon, self.n_u))
         for t in range(self.horizon):
-            if t * self.dt >= 7200:
-                system.set_night_mode()
+            system.Q_airload = d_traj[t, 0]
+            system.m_ref_const = d_traj[t, -1]
+            system.P_ref = P_ref
+
             valves, comp_on, _, _ = system.simulate_step(self.dt, t * self.dt)
             u_init[t, :self.n_cases] = valves
             u_init[t, self.n_cases] = sum(comp_on)
@@ -346,7 +347,8 @@ def optimize_full_trajectory(scenario='2d-2c', duration=14400, window_size=180,
         """Extract state as flat vector [4n+1]"""
         state_vec = []
         for i in range(n_cases):
-            state_vec.extend(system.cases[i].state)  # [T_goods, T_wall, T_air, M_ref]
+            state_vec.append(system.cases[i].state)  # [T_goods, T_wall, T_air, M_ref]
+        state_vec = list(np.array(state_vec).transpose().flatten())
         state_vec.append(system.P_suc)
         return np.array(state_vec)
     
@@ -384,10 +386,13 @@ def optimize_full_trajectory(scenario='2d-2c', duration=14400, window_size=180,
             eta = (elapsed / (window_idx + 1)) * (n_windows - window_idx - 1) if window_idx > 0 else 0
             print(f"Window {window_idx+1}/{n_windows} | Elapsed: {elapsed:.0f}s | ETA: {eta:.0f}s", flush=True)
         
+        if t_window >= 7200:
+            system.set_night_mode()
+        
         x0 = get_state_vector(system, n_cases)
         d_traj = np.tile(get_disturbance(system, n_cases), (horizon_steps, 1))
         
-        u_window, x_window = optimizer.optimize(x0, d_traj, max_iter=max_iter, verbose=False)
+        u_window, x_window = optimizer.optimize(x0, d_traj, P_ref=system.P_ref, max_iter=max_iter, verbose=False)
         
         # Apply the ENTIRE optimized window (not just first step!)
         for step_in_window in range(horizon_steps):
@@ -408,9 +413,6 @@ def optimize_full_trajectory(scenario='2d-2c', duration=14400, window_size=180,
                 system.current_comp_on = [50.0, 0.0]
             else:
                 system.current_comp_on = [50.0, 50.0]
-            
-            if t_current >= 7200:
-                system.set_night_mode()
             
             # Now simulate with our controls (not PID!)
             # We need to manually step the system, bypassing the controller
@@ -454,7 +456,7 @@ def optimize_full_trajectory(scenario='2d-2c', duration=14400, window_size=180,
     
     # Metrics (split u_opt_hist into valves and compressor)
     valve_states = u_opt_hist[:, :n_cases]
-    comp_switches = u_opt_hist[:, n_cases]  # Total compressor capacity
+    comp_switches = np.abs(np.diff(jnp.round(u_opt_hist[:, n_cases] / system.comp_capacities[0])))  # All compressor switches
     gamma_con_opt, gamma_switch_opt, gamma_pow_opt = sm.calculate_performance(
         time_opt, T_air_opt, P_suc_opt, comp_switches, power_opt, valve_states, P_ref=1.7
     )
@@ -536,4 +538,3 @@ if __name__ == "__main__":
     
     # For faster testing during development, use:
     # optimize_full_trajectory(duration=1800, window_size=180, max_iter=50)  # 30 min test
-
