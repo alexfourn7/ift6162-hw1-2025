@@ -220,7 +220,7 @@ class BellmanProjectionMethod(ProjectionMethod):
         # 
         # This IS value iteration, just in coefficient space instead of function space!
         # It's also called "fitted value iteration" in the DP literature.
-        a = a0.copy()
+        a = a0
         nodes = self.test.nodes
         n_basis = len(a)
         Phi = np.column_stack([self.basis(nodes, j) for j in range(n_basis)])

@@ -364,12 +364,12 @@ class GalerkinTest(TestFunction):
         #    - Compute weighted sum: sum(w_quad * R * phi_i * w_weight)
         # 
         # Hint: Gauss-Legendre quadrature approximates integral f(x)dx as sum w_j*f(x_j)
-        if self.quad_type == 'gauss':
-            x_std, w_std = np.polynomial.legendre.leggauss(self.n_quad)
-            scale = 0.5 * (b - a)
-            shift = 0.5 * (a + b)
-            x_quad = scale * x_std + shift
-            w_quad = scale * w_std
+        
+        x_std, w_std = np.polynomial.legendre.leggauss(self.n_quad)
+        scale = 0.5 * (b - a)
+        shift = 0.5 * (a + b)
+        x_quad = scale * x_std + shift
+        w_quad = scale * w_std
         
         r = residual_func(x_quad, coeffs)
 
